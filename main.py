@@ -1,23 +1,29 @@
 import tkinter as tk
-from tkinter import Menu, Toplevel
+from tkinter import Menu, Toplevel, messagebox
 from tkinter import ttk
-import sqlite3
+from database import DatabaseHandler
+from summary import Summary
+
 
 class ExpenseTracker:
     def __init__(self, root):
         self.root = root
         self.root.title("Personal Expense Tracker")
         self.root.geometry("600x400")
+        self.db_handler = DatabaseHandler()  # Initialize the database handler
         self.menubar()
         self.tabs()
-        self.db_connection = self.connect_to_db()  # Establish a connection to the database
+        self.summary_handler = Summary(self.db_handler.connection)  # Initialize the summary handler
 
     def menubar(self):
         my_menu = Menu(self.root)
         self.root.config(menu=my_menu)
         file = Menu(my_menu)
         my_menu.add_cascade(label="File", menu=file)
+        file.add_command(label="Export to JSON", command=self.export_to_json)
+        file.add_command(label="Import from JSON", command=self.import_from_json)
         file.add_command(label="Exit", command=self.root.quit)
+
         view = Menu(my_menu)  # Create view menu
         my_menu.add_cascade(label="View", menu=view)
         view.add_command(label="Daily Summary", command=self.daily_summary)
@@ -72,49 +78,48 @@ class ExpenseTracker:
         placeholder_label = ttk.Label(screen2, text="Use the 'View' menu to see summaries")
         placeholder_label.grid(row=1, column=0, padx=5, pady=5)
 
-    def connect_to_db(self):
-        # Connect to SQLite database (or create it if it doesn't exist)
-        connection = sqlite3.connect('expenses.db')
-        cursor = connection.cursor()
-        # Create expenses table if it doesn't exist
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS expenses (
-                id INTEGER PRIMARY KEY,
-                date TEXT,
-                category TEXT,
-                amount REAL,
-                description TEXT
-            )
-        ''')
-        connection.commit()
-        return connection
-
     def submit_expense(self):
         date = self.dateEntry.get()
         amount = self.amountEntry.get()
         description = self.descriptionEntry.get()
         category = self.categorydropdown.get()
 
-        # Insert the expense into the database
-        cursor = self.db_connection.cursor()
-        cursor.execute('''
-            INSERT INTO expenses (date, category, amount, description)
-            VALUES (?, ?, ?, ?)
-        ''', (date, category, amount, description))
-        self.db_connection.commit()
+        try:
+            # Validate input data
+            if not date or not amount or not category:
+                raise ValueError("All fields except description must be filled out.")
+            # Ensure amount is a valid number
+            amount = float(amount)
 
-        # Clear the form fields
-        self.dateEntry.delete(0, tk.END)
-        self.amountEntry.delete(0, tk.END)
-        self.descriptionEntry.delete(0, tk.END)
-        self.categorydropdown.set('')
+            # Insert the expense into the database
+            self.db_handler.create_expense(date, category, amount, description)
 
-        print("Expense submitted:", date, category, amount, description)
+            # Clear the form fields
+            self.dateEntry.delete(0, tk.END)
+            self.amountEntry.delete(0, tk.END)
+            self.descriptionEntry.delete(0, tk.END)
+            self.categorydropdown.set('')
+
+            messagebox.showinfo("Success", "Expense submitted successfully.")
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
+    def export_to_json(self):
+        try:
+            self.db_handler.export_to_json()
+            messagebox.showinfo("Success", "Data exported to expenses.json")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export data: {str(e)}")
+
+    def import_from_json(self):
+        try:
+            self.db_handler.import_from_json()
+            messagebox.showinfo("Success", "Data imported from expenses.json")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to import data: {str(e)}")
 
     def daily_summary(self):
-        from summary import Summary
-        summary = Summary(self.db_connection)
-        daily_summary = summary.get_daily_summary()
+        daily_summary = self.summary_handler.get_daily_summary()
 
         # Create a new window for displaying daily summary
         screen3 = Toplevel(self.root)
@@ -130,13 +135,11 @@ class ExpenseTracker:
             row_num += 1
 
         # Add button to plot daily summary
-        plot_button = ttk.Button(screen3, text="Plot Daily Summary", command=summary.plot_daily_summary)
+        plot_button = ttk.Button(screen3, text="Plot Daily Summary", command=self.summary_handler.plot_daily_summary)
         plot_button.grid(row=row_num, column=0, padx=5, pady=5)
 
     def monthly_summary(self):
-        from summary import Summary
-        summary = Summary(self.db_connection)
-        monthly_summary = summary.get_monthly_summary()
+        monthly_summary = self.summary_handler.get_monthly_summary()
 
         # Create a new window for displaying monthly summary
         screen4 = Toplevel(self.root)
@@ -152,13 +155,11 @@ class ExpenseTracker:
             row_num += 1
 
         # Add button to plot monthly summary
-        plot_button = ttk.Button(screen4, text="Plot Monthly Summary", command=summary.plot_monthly_summary)
+        plot_button = ttk.Button(screen4, text="Plot Monthly Summary", command=self.summary_handler.plot_monthly_summary)
         plot_button.grid(row=row_num, column=0, padx=5, pady=5)
 
     def category_summary(self):
-        from summary import Summary
-        summary = Summary(self.db_connection)
-        category_summary = summary.get_category_summary()
+        category_summary = self.summary_handler.get_category_summary()
 
         # Create a new window for displaying category summary
         screen5 = Toplevel(self.root)
@@ -174,40 +175,10 @@ class ExpenseTracker:
             row_num += 1
 
         # Add button to plot category summary
-        plot_button = ttk.Button(screen5, text="Plot Category Summary", command=summary.plot_category_summary)
+        plot_button = ttk.Button(screen5, text="Plot Category Summary", command=self.summary_handler.plot_category_summary)
         plot_button.grid(row=row_num, column=0, padx=5, pady=5)
-def export_to_json(self):
-        cursor = self.db_connection.cursor()
-        cursor.execute("SELECT * FROM expenses")
-        expenses = cursor.fetchall()
 
-        expenses_list = []
-        for expense in expenses:
-            expense_dict = {
-                'id': expense[0],
-                'date': expense[1],
-                'category': expense[2],
-                'amount': expense[3],
-                'description': expense[4]
-                        }
-            expenses_list.append(expense_dict)
 
-        with open('expenses.json', 'w') as json_file:
-            json.dump(expenses_list, json_file, indent=4)
-        print("Expenses exported to expenses.json")
-
-    def import_from_json(self):
-        with open('expenses.json', 'r') as json_file:
-            expenses_list = json.load(json_file)
-
-        cursor = self.db_connection.cursor()
-        for expense in expenses_list:
-            cursor.execute('''
-                INSERT OR IGNORE INTO expenses (id, date, category, amount, description)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (expense['id'], expense['date'], expense['category'], expense['amount'], expense['description']))
-        self.db_connection.commit()
-        print("Expenses imported from expenses.json")
 if __name__ == "__main__":
     root = tk.Tk()
     app = ExpenseTracker(root)
